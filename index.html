@@ -2,14 +2,48 @@
 <html><head><meta charset="utf-8"><meta name="referrer" content="strict-origin-when-cross-origin">
 <title>YT wallpaper</title>
 <style>html,body{margin:0;height:100%;background:#000;overflow:hidden}
-iframe{position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100vh;min-width:177.78vh;transform:translate(-50%,-50%);border:0;pointer-events:none}</style>
+iframe{position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100vh;min-width:177.78vh;transform:translate(-50%,-50%);border:0;pointer-events:none}
+#log{position:fixed;left:8px;bottom:8px;z-index:9;font:12px/1.4 ui-monospace,monospace;color:#fff;background:#0009;padding:4px 8px;white-space:pre;display:none}</style>
 </head><body>
+<div id="box"></div><div id="log"></div>
 <script>
 const p=new URLSearchParams(location.search);const v=p.get("v")||"U3kEvS-42OM";const live=p.has("live");
-const q=new URLSearchParams({autoplay:"1",controls:"0",mute:p.get("mute")||"0",playsinline:"1",rel:"0"});
-if(!live){q.set("loop","1");q.set("playlist",v);}
-const f=document.createElement("iframe");
-f.src="https://www.youtube.com/embed/"+encodeURIComponent(v)+"?"+q;
-f.allow="autoplay; encrypted-media";f.referrerPolicy="strict-origin-when-cross-origin";
-document.body.appendChild(f);
+const muted=p.get("mute")==="1";const debug=p.has("debug");
+const logEl=document.getElementById("log");if(debug)logEl.style.display="block";
+const lines=[];
+function log(s){const t=new Date().toLocaleTimeString();lines.push(t+" "+s);if(lines.length>8)lines.shift();logEl.textContent=lines.join("\n");}
+
+// 止まったら直す：15秒ごとに再生位置が進んでいるか見る．
+// 進んでいなければ playVideo，3回続けて直らなければプレーヤーを作り直す．
+const CHECK_MS=15000,REBUILD_AFTER=3;
+let player=null,lastTime=-1,stuck=0,rebuilds=0;
+
+function build(){
+  const box=document.getElementById("box");box.innerHTML='<div id="p"></div>';
+  const vars={autoplay:1,controls:0,mute:muted?1:0,playsinline:1,rel:0,origin:location.origin};
+  player=new YT.Player("p",{videoId:v,playerVars:vars,events:{
+    onReady:e=>{if(muted)e.target.mute();else e.target.unMute();e.target.playVideo();log("ready");},
+    onStateChange:e=>{
+      // 録画は終わったら頭に戻す（loop パラメータより確実）
+      if(e.data===YT.PlayerState.ENDED&&!live){e.target.seekTo(0,true);e.target.playVideo();log("ended → restart");}
+      else log("state "+e.data);
+    },
+    onError:e=>{log("error "+e.data);stuck=REBUILD_AFTER;}
+  }});
+  window.player=player;lastTime=-1;stuck=0;
+}
+
+function check(){
+  if(!player||typeof player.getPlayerState!=="function"){stuck++;}
+  else{
+    const s=player.getPlayerState(),t=player.getCurrentTime();
+    if(s===YT.PlayerState.PLAYING&&t!==lastTime){stuck=0;}
+    else{stuck++;log("stuck "+stuck+" (state "+s+")");try{player.playVideo();}catch(_){}}
+    lastTime=t;
+  }
+  if(stuck>=REBUILD_AFTER){rebuilds++;log("rebuild #"+rebuilds);try{player.destroy();}catch(_){}build();}
+}
+
+window.onYouTubeIframeAPIReady=()=>{build();setInterval(check,CHECK_MS);};
+const s=document.createElement("script");s.src="https://www.youtube.com/iframe_api";document.head.appendChild(s);
 </script></body></html>
